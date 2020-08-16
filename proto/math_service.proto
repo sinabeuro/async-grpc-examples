@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+message GetSquareRequest {
+  int32 input = 1;
+}
+
+message GetSquareResponse {
+  int32 output = 1;
+}
+
+// Provides information about the gRPC server.
+service Math {
+  rpc GetSquare(GetSquareRequest) returns (GetSquareResponse);
+}
