@@ -21,6 +21,11 @@ CompletionQueue* CompletionQueue::GetCompletionQueue() {
   cq->Initialize();
   return cq;
 }
+std::shared_ptr<CompletionQueue::ClientEvent> CompletionQueue::GetClientEvent(
+    ClientEvent::Event event, AsyncClient* async_client) {
+    std::shared_ptr<ClientEvent> ptr(new ClientEvent(event, async_client));
+  return ptr->shared_from_this();
+}
 
 void CompletionQueue::Start() {
   thread_ =
@@ -36,9 +41,8 @@ void CompletionQueue::RunCompletionQueue() {
   bool ok;
   void* tag;
   while (grpc_completion_queue_.Next(&tag, &ok)) {
-    auto client_event = static_cast<ClientEvent*>(tag);
+    auto client_event = static_cast<ClientEvent *>(tag);
     client_event->ok = ok;
     client_event->async_client->HandleEvent(*client_event);
-    delete client_event;
   }
 }

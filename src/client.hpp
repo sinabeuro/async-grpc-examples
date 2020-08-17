@@ -12,27 +12,34 @@ using CallbackType =
     std::function<void(const grpc::Status&, const ResponseType*)>;
 
 class AsyncClient;
-struct RequestContext;
 
 class CompletionQueue {
  public:
-  struct ClientEvent {
+  struct ClientEvent : std::enable_shared_from_this<ClientEvent> {
+    friend class CompletionQueue;
+   public:
     enum class Event { FINISH = 0, READ = 1, WRITE = 2 };
-    ClientEvent(Event event, AsyncClient* async_client, RequestContext *req_ctx)
-        : event(event), async_client(async_client), req_ctx(req_ctx){}
     Event event;
     AsyncClient* async_client;
-    RequestContext *req_ctx;
+    grpc::ClientContext client_context_;
+    grpc::Status status_;
+    ResponseType response_;
+    std::unique_ptr<grpc::ClientAsyncResponseReader<ResponseType>> response_reader_;
     bool ok = false;
+   private:
+    ClientEvent(Event event, AsyncClient* async_client)
+        : event(event), async_client(async_client) {}
   };
 
  public:
   CompletionQueue() = default;
-  ~CompletionQueue() {}
+  ~CompletionQueue() = default;
 
   void Start();
   void Shutdown();
   static CompletionQueue *GetCompletionQueue();
+  std::shared_ptr<ClientEvent> GetClientEvent(
+    ClientEvent::Event event, AsyncClient* async_client);
 
   grpc::CompletionQueue* grpc_completion_queue() { return &grpc_completion_queue_; }
 
@@ -46,16 +53,8 @@ class CompletionQueue {
   bool initialized_ = false;
 };
 
-struct RequestContext {
-  grpc::ClientContext client_context_;
-  grpc::Status status_;
-  ResponseType response_;
-  std::unique_ptr<grpc::ClientAsyncResponseReader<ResponseType>> response_reader_;
-};
-
 class AsyncClient
 {
-  friend class CompletionQueue;
  public:
   AsyncClient(std::shared_ptr<Math::Stub> stub, CallbackType callback)
       : stub_(stub),
@@ -66,17 +65,16 @@ class AsyncClient
   ~AsyncClient() { Stop(); };
 
   void WriteAsync(const RequestType& request) {
-    gone_.push(request.input());
-    auto req_ctx = new RequestContext;
-    auto finish_event_ = new CompletionQueue::ClientEvent(
-      CompletionQueue::ClientEvent::Event::FINISH, this, req_ctx);
-    req_ctx->response_reader_ =
+    auto finish_event_ = completion_queue_->GetClientEvent(
+      CompletionQueue::ClientEvent::Event::FINISH, this);
+    gone_.push(std::make_pair(request.input(), finish_event_));
+    finish_event_->response_reader_ =
         std::unique_ptr<grpc::ClientAsyncResponseReader<ResponseType>>(
-            stub_->PrepareAsyncGetSquare(&req_ctx->client_context_, request,
+            stub_->PrepareAsyncGetSquare(&finish_event_->client_context_, request,
               completion_queue_->grpc_completion_queue()));
-    req_ctx->response_reader_->StartCall();
-    req_ctx->response_reader_->Finish(&req_ctx->response_, &req_ctx->status_,
-      (void*)finish_event_);
+    finish_event_->response_reader_->StartCall();
+    finish_event_->response_reader_->Finish(&finish_event_->response_,
+      &finish_event_->status_, (void*)finish_event_.get());
   }
 
   void HandleEvent(const CompletionQueue::ClientEvent& client_event) {
@@ -87,13 +85,12 @@ class AsyncClient
       default:
         ;
     }
-    delete client_event.req_ctx;
   }
 
   void HandleFinishEvent(const CompletionQueue::ClientEvent& client_event) {
     if (callback_) {
-      auto status = client_event.req_ctx->status_;
-      auto response = client_event.req_ctx->response_;
+      auto status = client_event.status_;
+      auto response = client_event.response_;
       callback_(status, status.ok() ? &response : nullptr);
 
       std::lock_guard<std::mutex> lock_guard(*client_event.async_client->m_);
@@ -106,8 +103,8 @@ class AsyncClient
     if (returned_.empty() || gone_.empty())
       return -1;
 
-    if (returned_.top() == gone_.front()) {
-      auto ret = gone_.front();
+    if (returned_.top() == gone_.front().first) {
+      auto ret = gone_.front().first;
       returned_.pop();
       gone_.pop();
       return ret;
@@ -121,7 +118,7 @@ class AsyncClient
   }
 
  private:
-  std::queue<int> gone_;
+  std::queue<std::pair<int, std::shared_ptr<CompletionQueue::ClientEvent>>> gone_;
   std::priority_queue<int, std::vector<int>, std::greater<int>> returned_;
   std::shared_ptr<Math::Stub> stub_;
   CompletionQueue* completion_queue_;
