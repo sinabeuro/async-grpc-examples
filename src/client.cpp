@@ -21,6 +21,10 @@ CompletionQueue* CompletionQueue::GetCompletionQueue() {
   cq->Initialize();
   return cq;
 }
+CompletionQueue::ClientEvent *CompletionQueue::GetClientEvent(
+    ClientEvent::Event event, AsyncClient* async_client, RequestContext *req_ctx) {
+  return new ClientEvent(event, async_client, req_ctx);
+}
 
 void CompletionQueue::Start() {
   thread_ =

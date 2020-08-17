@@ -12,27 +12,39 @@ using CallbackType =
     std::function<void(const grpc::Status&, const ResponseType*)>;
 
 class AsyncClient;
-struct RequestContext;
+
+struct RequestContext {
+  grpc::ClientContext client_context_;
+  grpc::Status status_;
+  ResponseType response_;
+  std::unique_ptr<grpc::ClientAsyncResponseReader<ResponseType>> response_reader_;
+};
 
 class CompletionQueue {
  public:
   struct ClientEvent {
-    enum class Event { FINISH = 0, READ = 1, WRITE = 2 };
-    ClientEvent(Event event, AsyncClient* async_client, RequestContext *req_ctx)
-        : event(event), async_client(async_client), req_ctx(req_ctx){}
+    friend class CompletionQueue;
+   public:
+     enum class Event { FINISH = 0, READ = 1, WRITE = 2 };
     Event event;
     AsyncClient* async_client;
     RequestContext *req_ctx;
     bool ok = false;
+   private:
+    ClientEvent(Event event, AsyncClient* async_client, RequestContext *req_ctx)
+        : event(event), async_client(async_client), req_ctx(req_ctx){}
+
   };
 
  public:
   CompletionQueue() = default;
-  ~CompletionQueue() {}
+  ~CompletionQueue() = default;
 
   void Start();
   void Shutdown();
   static CompletionQueue *GetCompletionQueue();
+  static CompletionQueue::ClientEvent *GetClientEvent(ClientEvent::Event event,
+    AsyncClient* async_client, RequestContext *req_ctx);
 
   grpc::CompletionQueue* grpc_completion_queue() { return &grpc_completion_queue_; }
 
@@ -46,16 +58,8 @@ class CompletionQueue {
   bool initialized_ = false;
 };
 
-struct RequestContext {
-  grpc::ClientContext client_context_;
-  grpc::Status status_;
-  ResponseType response_;
-  std::unique_ptr<grpc::ClientAsyncResponseReader<ResponseType>> response_reader_;
-};
-
 class AsyncClient
 {
-  friend class CompletionQueue;
  public:
   AsyncClient(std::shared_ptr<Math::Stub> stub, CallbackType callback)
       : stub_(stub),
@@ -68,7 +72,7 @@ class AsyncClient
   void WriteAsync(const RequestType& request) {
     gone_.push(request.input());
     auto req_ctx = new RequestContext;
-    auto finish_event_ = new CompletionQueue::ClientEvent(
+    auto finish_event_ = CompletionQueue::GetClientEvent(
       CompletionQueue::ClientEvent::Event::FINISH, this, req_ctx);
     req_ctx->response_reader_ =
         std::unique_ptr<grpc::ClientAsyncResponseReader<ResponseType>>(
