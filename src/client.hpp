@@ -30,7 +30,7 @@ class CompletionQueue {
 
   void Start();
   void Shutdown();
-  static grpc::CompletionQueue *GetCompletionQueue();
+  static CompletionQueue *GetCompletionQueue();
 
   grpc::CompletionQueue* grpc_completion_queue() { return &grpc_completion_queue_; }
 
@@ -69,7 +69,7 @@ class AsyncClient
     req_ctx->response_reader_ =
         std::unique_ptr<grpc::ClientAsyncResponseReader<ResponseType>>(
             stub_->PrepareAsyncGetSquare(&req_ctx->client_context_, request,
-              completion_queue_));
+              completion_queue_->grpc_completion_queue()));
     req_ctx->response_reader_->StartCall();
     req_ctx->response_reader_->Finish(&req_ctx->response_, &req_ctx->status_,
       (void*)finish_event_);
@@ -96,6 +96,6 @@ class AsyncClient
 
  private:
   std::shared_ptr<Math::Stub> stub_;
-  grpc::CompletionQueue* completion_queue_;
+  CompletionQueue* completion_queue_;
   CallbackType callback_;
 };

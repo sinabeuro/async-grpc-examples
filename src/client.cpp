@@ -16,10 +16,10 @@ CompletionQueue* CompletionQueue::completion_queue() {
   return kInstance;
 }
 
-grpc::CompletionQueue* CompletionQueue::GetCompletionQueue() {
+CompletionQueue* CompletionQueue::GetCompletionQueue() {
   CompletionQueue *cq = completion_queue();
   cq->Initialize();
-  return cq->grpc_completion_queue();
+  return cq;
 }
 
 void CompletionQueue::Start() {
