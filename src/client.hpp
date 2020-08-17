@@ -60,7 +60,7 @@ class AsyncClient
         callback_(callback),
         completion_queue_(CompletionQueue::GetCompletionQueue()) {}
 
-  ~AsyncClient() {};
+  ~AsyncClient() { Stop(); };
 
   void WriteAsync(const RequestType& request) {
     auto req_ctx = new RequestContext;
@@ -92,6 +92,10 @@ class AsyncClient
       auto response = client_event.req_ctx->response_;
       callback_(status, status.ok() ? &response : nullptr);
     }
+  }
+
+  void Stop() {
+    completion_queue_->Shutdown();
   }
 
  private:
