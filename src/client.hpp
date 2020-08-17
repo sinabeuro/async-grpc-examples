@@ -1,4 +1,5 @@
 #include <thread>
+#include <queue>
 
 #include <grpcpp/grpcpp.h>
 
@@ -27,6 +28,7 @@ class CompletionQueue {
 
  public:
   CompletionQueue() = default;
+  ~CompletionQueue() {}
 
   void Start();
   void Shutdown();
@@ -58,11 +60,13 @@ class AsyncClient
   AsyncClient(std::shared_ptr<Math::Stub> stub, CallbackType callback)
       : stub_(stub),
         callback_(callback),
-        completion_queue_(CompletionQueue::GetCompletionQueue()) {}
+        completion_queue_(CompletionQueue::GetCompletionQueue()),
+        m_(std::make_shared<std::mutex>()) {}
 
   ~AsyncClient() { Stop(); };
 
   void WriteAsync(const RequestType& request) {
+    gone_.push(request.input());
     auto req_ctx = new RequestContext;
     auto finish_event_ = new CompletionQueue::ClientEvent(
       CompletionQueue::ClientEvent::Event::FINISH, this, req_ctx);
@@ -91,6 +95,24 @@ class AsyncClient
       auto status = client_event.req_ctx->status_;
       auto response = client_event.req_ctx->response_;
       callback_(status, status.ok() ? &response : nullptr);
+
+      std::lock_guard<std::mutex> lock_guard(*client_event.async_client->m_);
+      returned_.push(response.output());
+    }
+  }
+
+  int GetResult() {
+    std::lock_guard<std::mutex> lock_guard(*m_);
+    if (returned_.empty() || gone_.empty())
+      return -1;
+
+    if (returned_.top() == gone_.front()) {
+      auto ret = gone_.front();
+      returned_.pop();
+      gone_.pop();
+      return ret;
+    } else {
+      return -1;
     }
   }
 
@@ -99,7 +121,10 @@ class AsyncClient
   }
 
  private:
+  std::queue<int> gone_;
+  std::priority_queue<int, std::vector<int>, std::greater<int>> returned_;
   std::shared_ptr<Math::Stub> stub_;
   CompletionQueue* completion_queue_;
   CallbackType callback_;
+  std::shared_ptr<std::mutex> m_;
 };

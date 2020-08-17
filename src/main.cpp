@@ -11,9 +11,12 @@ int main(void) {
 
     GetSquareRequest request = GetSquareRequest();
 
+    int result = 0;
     for (int i = 0; ; i++) {
         request.set_input(i);
         client.WriteAsync(request);
+        while ((result = client.GetResult()) >= 0)
+            std::cout << result << std::endl;
         usleep(1000);
     }
 
