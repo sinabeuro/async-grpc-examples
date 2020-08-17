@@ -21,6 +21,10 @@ CompletionQueue* CompletionQueue::GetCompletionQueue() {
   cq->Initialize();
   return cq;
 }
+AsyncClient::ClientEvent *AsyncClient::GetClientEvent(
+    ClientEvent::Event event, AsyncClient* async_client) {
+    return new ClientEvent(event, async_client);
+}
 
 void CompletionQueue::Start() {
   thread_ =
@@ -36,9 +40,8 @@ void CompletionQueue::RunCompletionQueue() {
   bool ok;
   void* tag;
   while (grpc_completion_queue_.Next(&tag, &ok)) {
-    auto client_event = static_cast<ClientEvent*>(tag);
+    auto client_event = static_cast<AsyncClient::ClientEvent *>(tag);
     client_event->ok = ok;
     client_event->async_client->HandleEvent(*client_event);
-    delete client_event;
   }
 }
